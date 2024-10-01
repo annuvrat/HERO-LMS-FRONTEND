@@ -1,0 +1,338 @@
+import React, { useEffect, useState } from 'react';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import axios from 'axios';
+
+// Define colors for different leave types
+const leaveTypeColors = {
+  'CL': 'orange',  // Casual Leave
+  'SL': 'turquoise',   // Sick Leave
+  'EL': 'lightgreen',
+   'WP':'yellow'  // Earned Leave
+  // Add more leave types and colors as needed
+};
+
+const Calendar = () => {
+  const [events, setEvents] = useState([]);
+  const [calendarHeight, setCalendarHeight] = useState('auto');
+  const [calendarContentHeight, setCalendarContentHeight] = useState(350);
+  const [calendarAspectRatio, setCalendarAspectRatio] = useState(1.25);
+  const [hoverInfo, setHoverInfo] = useState(null);
+  const [clickInfo, setClickInfo] = useState(null);
+  const [hoverPosition, setHoverPosition] = useState({ top: 0, left: 0 });
+  const [clickPosition, setClickPosition] = useState({ top: 0, left: 0 });
+
+  // Function to fetch calendar data from the API
+  const fetchCalendarData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token found, please log in.');
+        return;
+      }
+
+      const response = await axios.get('http://localhost:3000/calendar', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 200) {
+        const calendarData = response.data;
+
+        // Transform API data to FullCalendar event format
+        const transformedEvents = calendarData.map(event => {
+          if (event.type === 'meeting') {
+            return {
+              title: event.title,
+              start: event.startTime,
+              end: event.endTime,
+              extendedProps: {
+                description: event.description,
+                type: event.type
+              },
+            };
+          } else if (event.type === 'leave') {
+            return {
+              title: `Leave: ${event.leaveType}`,
+              start: event.startDate,
+              end: event.endDate,
+              extendedProps: {
+                status: event.status,
+                type: event.type,
+                leaveType: event.leaveType
+              },
+            };
+          } else if (event.type === 'holiday') {
+            return {
+              title: `Holiday: ${event.holidayName}`,
+              start: event.date,
+              extendedProps: {
+                description: event.description,
+                type: event.type
+              },
+            };
+          } else {
+            return null;
+          }
+        }).filter(event => event !== null);
+
+        setEvents(transformedEvents);
+      } else {
+        console.error(`Failed to fetch calendar data. Status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error fetching calendar data:', error.response?.data || error.message);
+    }
+  };
+
+  // Adjust calendar size based on window width
+  const handleResize = () => {
+    const screenWidth = window.innerWidth;
+
+    if (screenWidth <= 480) {
+      setCalendarHeight(300);
+      setCalendarContentHeight(200);
+      setCalendarAspectRatio(0.8);
+    } else if (screenWidth <= 768) {
+      setCalendarHeight(400);
+      setCalendarContentHeight(300);
+      setCalendarAspectRatio(1.2);
+    } else {
+      setCalendarHeight('115vh');
+      setCalendarContentHeight(350);
+      setCalendarAspectRatio(1.25);
+    }
+  };
+
+  useEffect(() => {
+    fetchCalendarData();
+    handleResize(); // Set initial size based on current screen width
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  // Handle event hover
+  const handleEventMouseEnter = (info) => {
+    const { description, leaveType, status } = info.event.extendedProps;
+    const hoverData = {
+      description: description ||  'description ',
+      leaveType: leaveType || 'No leave type',
+      status: status || 'No status'
+    };
+    const { clientX, clientY } = info.jsEvent;
+    setHoverInfo(hoverData);
+    setHoverPosition({ top: clientY + 10, left: clientX + 10 }); // Adjust position to be visible
+  };
+
+  const handleEventMouseLeave = () => {
+    setHoverInfo(null);
+  };
+
+  // Handle event click
+  const handleEventClick = (info) => {
+    const { title, extendedProps } = info.event;
+    const status = extendedProps.status || 'No status';
+    const { clientX, clientY } = info.jsEvent;
+    setClickInfo({
+      title,
+      status
+    });
+    setClickPosition({ top: clientY + 10, left: clientX + 10 }); // Adjust position to be visible
+  };
+
+  return (
+    <div className="relative p-3 border  m-2 shadow-lg font-bold rounded-lg dark:border-gray-50">
+      <FullCalendar
+        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+        initialView="dayGridMonth"
+        weekends={true}
+        events={events}
+        eventContent={renderEventContent}
+        headerToolbar={{
+          start: 'prev,next',
+          center: 'title',
+          end: 'dayGridMonth,timeGridWeek,timeGridDay',
+        }}
+        eventTimeFormat={{
+          hour: '2-digit',
+          minute: '2-digit',
+          meridiem: 'short',
+        }}
+        height={calendarHeight}
+        contentHeight={calendarContentHeight}
+        aspectRatio={calendarAspectRatio}
+        eventMouseEnter={handleEventMouseEnter}
+        eventMouseLeave={handleEventMouseLeave}
+        eventClick={handleEventClick}
+      />
+
+      {/* Hover info display */}
+      {hoverInfo && (
+        <div
+          className="absolute bg-white border border-gray-300 p-2 rounded-lg shadow-md z-10"
+          style={{ top: hoverPosition.top, left: hoverPosition.left, transform: 'translate(-50%, 0)' }}
+        >
+          <div><strong>Description:</strong> {hoverInfo.description}</div>
+          <div><strong>Leave Type:</strong> {hoverInfo.leaveType}</div>
+          <div><strong>Status:</strong> {hoverInfo.status}</div>
+        </div>
+      )}
+
+      {/* Click info display */}
+      {clickInfo && (
+        <div
+          className="absolute bg-white border border-gray-300 p-2 rounded-lg shadow-md z-10"
+          style={{ top: clickPosition.top, left: clickPosition.left, transform: 'translate(-50%, 0)' }}
+        >
+          <div><strong>Event:</strong> {clickInfo.title}</div>
+          <div><strong>Status:</strong> {clickInfo.status}</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Custom render function for event content
+function renderEventContent(eventInfo) {
+  const { description, type, leaveType } = eventInfo.event.extendedProps;
+
+  // Determine background color based on leave type
+  const backgroundColor = type === 'leave' ? leaveTypeColors[leaveType] || 'lightgray' : 'transparent';
+
+  return (
+    <div
+      className="p-1"
+      style={{
+        backgroundColor,
+        color: 'black',
+        overflow: 'hidden', // Hide overflow text
+        whiteSpace: 'nowrap', // Prevent text wrapping
+        textOverflow: 'ellipsis', // Add ellipsis for overflowing text
+        display: 'flex', // Use flex to control alignment
+        flexDirection: 'column', // Stack text vertically
+        alignItems: 'flex-start', // Align text to the start
+        justifyContent: 'center', // Center text vertically
+        padding: '0.5em', // Add padding for spacing
+        boxSizing: 'border-box', // Ensure padding does not affect width
+      }}
+    >
+      {/* Conditionally render time for meetings only */}
+      {type === 'meeting' && eventInfo.timeText && (
+        <div style={{ marginBottom: '0.2em' }}>
+          <b className="p-1">{eventInfo.timeText}</b>
+        </div>
+      )}
+      <i>{eventInfo.event.title}</i>
+      {description && <div>{description}</div>}
+    </div>
+  );
+}
+
+export default Calendar;
+
+
+
+
+app.get('/calendar', authenticateJWT, authorizeEmployee, async (req, res) => {
+  const { empl_code } = req.user;  // Extracting empl_code from the JWT token
+
+  try {
+    console.log('Starting calendar API...');
+
+    // Connect to the first database (config1) for leaves, holidays, and meetings
+    const pool = await sql.connect(config1);
+    console.log('Connected to the first database (config1).');
+
+    // Fetch employee leaves
+    const leaveResult = await pool.request()
+      .input('empl_code', sql.VarChar, empl_code)
+      .query(
+        SELECT 
+          LT.NAME AS leave_type,
+          LR.START_DATE,
+          LR.END_DATE,
+          LR.STATUS,
+          DATEDIFF(DAY, LR.START_DATE, LR.END_DATE) + 1 AS duration
+        FROM [dbo].[LEAVE_REQUEST] LR
+        JOIN [dbo].[LEAVE_TYPE] LT ON LR.LEAVE_TYPE_ID = LT.ID
+        WHERE LR.EMPL_CODE = @empl_code
+        ORDER BY LR.START_DATE ASC;
+      );
+
+    console.log('Fetched leaves:', leaveResult.recordset);
+
+    const leaves = leaveResult.recordset.map(row => ({
+      type: 'leave',
+      leaveType: row.leave_type,
+      startDate: row.START_DATE,
+      endDate: row.END_DATE,
+      status: row.STATUS,
+      duration: row.duration
+    }));
+
+    // Fetch upcoming holidays/events
+    const holidayResult = await pool.request()
+      .query(
+        SELECT 
+          NAME AS holiday_name,
+          DATE AS holiday_date,
+          DESCRIPTION AS holiday_description
+        FROM [dbo].[HOLIDAYS]
+        WHERE DATE >= GETDATE()
+        ORDER BY DATE ASC;
+      );
+
+    console.log('Fetched holidays:', holidayResult.recordset);
+
+    const holidays = holidayResult.recordset.map(row => ({
+      type: 'holiday',
+      holidayName: row.holiday_name,
+      date: row.holiday_date,
+      description: row.holiday_description
+    }));
+
+    // Fetch meetings for the employee
+    const meetingResult = await pool.request()
+      .input('empl_code', sql.VarChar, %${empl_code}%)
+      .query(
+        SELECT 
+          M.TITLE AS meeting_title,
+          M.START_DATETIME AS startTime,
+          M.END_DATETIME AS endTime,
+          M.DESCRIPTION AS meeting_description,
+          M.ATTENDEES
+        FROM [dbo].[MEETING] M
+        WHERE M.ATTENDEES LIKE @empl_code
+        ORDER BY M.START_DATETIME ASC;
+      );
+
+    console.log('Fetched meetings:', meetingResult.recordset);
+
+    const meetings = meetingResult.recordset.map(row => ({
+      type: 'meeting',
+      title: row.meeting_title,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      description: row.meeting_description,
+      attendees: row.ATTENDEES.split(',')
+    }));
+
+    // Combine and sort all calendar entries
+    const calendar = [...leaves, ...holidays, ...meetings].sort((a, b) =>
+      new Date(a.startDate || a.date || a.startTime) - new Date(b.startDate || b.date || b.startTime)
+    );
+
+    console.log('Combined calendar:', calendar);
+
+    res.json(calendar);
+  } catch (err) {
+    console.error('Error fetching calendar data:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
